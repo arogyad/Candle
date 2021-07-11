@@ -42,26 +42,8 @@ where
             concatenate![Axis(1), _temp, data.slice(s![.., split * 2..])]
         }
     }
-}
 
-impl<'a, T> std::ops::Deref for Poly<'a, T>
-where
-    T: num_traits::Float + num_traits::cast::FromPrimitive,
-    Standard: Distribution<T>,
-{
-    type Target = Linear<'a, T>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.lin
-    }
-}
-
-impl<'a, T> std::ops::DerefMut for Poly<'a, T>
-where
-    T: num_traits::Float + num_traits::cast::FromPrimitive,
-    Standard: Distribution<T>,
-{
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.lin
+    pub fn get(self) -> Linear<'a, T> {
+        self.lin
     }
 }
