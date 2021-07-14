@@ -1,1 +1,2 @@
+mod class;
 mod reg;

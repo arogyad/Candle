@@ -1,6 +1,6 @@
 #![allow(dead_code)]
-pub mod linear;
-pub mod poly;
+mod linear;
+mod poly;
 
 // Imports for the Data Creation
 use ndarray::{Array2, ArrayView2};
@@ -9,12 +9,14 @@ use ndarray_rand::rand_distr::{Distribution, Standard};
 use self::{linear::Linear, poly::Poly};
 mod traits;
 
-enum Reg {
-    Linear,
-    Poly(i32),
+pub
+enum Reg
+{
+  Linear,
+  Poly(i32),
 }
 
-struct Regression<'a, T>
+pub struct Regression<'a, T>
 where
     T: num_traits::Num + num_traits::cast::FromPrimitive,
 {

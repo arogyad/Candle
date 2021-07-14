@@ -15,31 +15,28 @@ where
     T: num_traits::Float + num_traits::cast::FromPrimitive,
     Standard: Distribution<T>,
 {
-    pub fn new(data: Array2<T>, label: ArrayView2<'a, T>, poly: i32) -> Self {
-        let data = Poly::make_poly(data, poly);
+    pub fn new(mut data: Array2<T>, label: ArrayView2<'a, T>, poly: i32) -> Self {
+        Poly::make_poly(&mut data, poly);
         Poly {
             lin: Linear::new(data, label),
         }
     }
 
-    fn make_poly(data: Array2<T>, poly: i32) -> Array2<T> {
+    fn make_poly(data: &mut Array2<T>, poly: i32) {
         let split = (data.ncols() / 2) as usize;
         let data_1 = data.slice(s![.., 0..split]);
         let data_2 = data.slice(s![.., split..split * 2]);
-        let mut _temp = data.clone();
         for i in 1..poly + 1 {
             for j in 0..i + 1 {
-                _temp = concatenate![
+                concatenate![
                     Axis(1),
-                    _temp,
+                    *data,
                     (data_1.mapv(|a| a.powi(i - j)) * data_2.mapv(|a| a.powi(j)))
                 ];
             }
         }
-        if split % 2 == 0 {
-            _temp
-        } else {
-            concatenate![Axis(1), _temp, data.slice(s![.., split * 2..])]
+        if split % 2 != 0 {
+            concatenate![Axis(1), *data, data.slice(s![.., split * 2..])];
         }
     }
 
