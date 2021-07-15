@@ -7,7 +7,7 @@ pub struct Poly<'a, T>
 where
     T: num_traits::Num + num_traits::FromPrimitive,
 {
-    lin: Linear<'a, T>,
+  lin: Linear<'a, T>,
 }
 
 impl<'a, T> Poly<'a, T>
@@ -39,8 +39,29 @@ where
             concatenate![Axis(1), *data, data.slice(s![.., split * 2..])];
         }
     }
-
-    pub fn get(self) -> Linear<'a, T> {
-        self.lin
-    }
+    pub(super)fn get(self) -> Linear<'a, T> {
+      self.lin
+    } 
 }
+
+/*
+impl<'a, T> DerefMut for Poly<'a, T>
+where
+    T: num_traits::float::Float + num_traits::cast::FromPrimitive,
+{
+  fn deref_mut(&mut self) -> &mut Self::Target {
+     &mut self.lin
+  }
+}
+
+impl<'a, T> Deref for Poly<'a, T>
+where
+    T: num_traits::float::Float + num_traits::cast::FromPrimitive,
+{
+  type Target = Linear<'a, T>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.lin
+  }
+}
+*/

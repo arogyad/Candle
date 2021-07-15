@@ -28,8 +28,8 @@ where
 
 impl<'a, T> Model for Linear<'a, T>
 where
-    T: num_traits::float::Float + num_traits::cast::FromPrimitive + ScalarOperand,
-    f64: Into<T>,
+    T: num_traits::Float + num_traits::cast::FromPrimitive + ScalarOperand,
+    f64: Into<T> 
 {
     type Item = T;
 
