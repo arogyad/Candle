@@ -1,23 +1,19 @@
 use ndarray::{self, Array2};
 
 pub trait Model {
-    type Item;
-
-    /// Normalize the given data
-    /// data = (data - mean) / std;
     fn normalize(&mut self);
 
     /// Inner product of the data and the theta
-    fn hypo(&self) -> ndarray::Array2<Self::Item>;
+    fn hypo(&self) -> ndarray::Array2<f64>;
 
     /// Train the model
-    fn train(&mut self, alpha: Self::Item, iter: i32);
+    fn train(&mut self, alpha: f64, iter: i32);
 
-    fn gradient(&mut self, alpha: Self::Item, iter: i32);
+    fn gradient(&mut self, alpha: f64, iter: i32);
 
     /// Predict based of an input using the trained theta
-    fn predict(&self, input: &Array2<Self::Item>) -> Array2<Self::Item>;
+    fn predict(&self, input: &Array2<f64>) -> Array2<f64>;
 
     /// One step of gradient descent
-    fn step(&mut self, alpha: Self::Item);
+    fn step(&mut self, alpha: f64);
 }
