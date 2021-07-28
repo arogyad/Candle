@@ -1,1 +1,2 @@
 mod logistic;
+mod knn;
