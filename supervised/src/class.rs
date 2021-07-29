@@ -1,2 +1,2 @@
-mod logistic;
-mod knn;
+pub mod kMeans;
+pub mod logistic;
