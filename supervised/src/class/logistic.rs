@@ -45,6 +45,7 @@ impl<'a> Model for Logistic<'a> {
     }
 
     fn step(&mut self, alpha: f64) {
-      self.theta = &self.theta - (alpha * (self.hypo() - self.label).reversed_axes().dot(&self.data));
+        self.theta =
+            &self.theta - (alpha * (self.hypo() - self.label).reversed_axes().dot(&self.data));
     }
 }

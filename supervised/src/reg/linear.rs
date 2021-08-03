@@ -4,30 +4,27 @@ use super::traits::Model;
 use ndarray::{Array2, ArrayView2, Axis};
 use rand;
 
-pub struct Linear<'a>
-{
+pub struct Linear<'a> {
     data: Array2<f64>,
     label: ArrayView2<'a, f64>,
     theta: Array2<f64>,
 }
 
-impl<'a> Linear<'a>
-{
+impl<'a> Linear<'a> {
     pub fn new(data: Array2<f64>, label: ArrayView2<'a, f64>) -> Self {
         let theta = Array2::from_shape_fn((data.ncols(), 1), |(_, _)| rand::random());
         Linear { data, label, theta }
     }
 }
 
-impl<'a> Model for Linear<'a>
-{
+impl<'a> Model for Linear<'a> {
     fn normalize(&mut self) {
         let mean = self.data.mean_axis(Axis(0)).unwrap();
         let std = self.data.std_axis(Axis(0), 0.0.into());
         if &std[[0]] != &0.0.into() {
             self.data = (&self.data - mean) / std;
         } else {
-            eprint!("f64he std is 0. Not normalized!");
+            eprint!("The std is 0. Not normalized!");
         }
     }
 
