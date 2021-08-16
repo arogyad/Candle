@@ -1,4 +1,6 @@
 #![allow(dead_code)]
+#![allow(unused)]
+use super::ops::Function;
 use arrayfire::{add, constant, div, exp, identity, matmul, mean, print, randn, Array, Dim4};
 use core::cmp::{Eq, PartialEq};
 use std::cell::RefCell;
@@ -6,12 +8,12 @@ use std::cell::RefCell;
 pub struct Tensor<'a> {
     pub data: Array<f64>,
     pub grad: Option<RefCell<Array<f64>>>,
-    pub _ctx: Option<Box<&'a dyn Function>>,
+    pub _ctx: Option<&'a dyn Function>,
 }
 
 impl<'a> Tensor<'a> {
     // Main Creation Function
-    pub fn new(data: Array<f64>, _ctx: Option<Box<&'a dyn Function>>, req_grad: bool) -> Self {
+    pub fn new(data: Array<f64>, _ctx: Option<&'a dyn Function>, req_grad: bool) -> Self {
         if req_grad {
             Self {
                 grad: None,
@@ -106,10 +108,12 @@ impl<'a> Tensor<'a> {
                 .unwrap()
                 .backward(t0.grad.as_ref().unwrap());
             for (t, g) in t0._ctx.as_ref().unwrap().parents().iter().zip(grads) {
-                t.grad
-                    .as_ref()
-                    .unwrap()
-                    .replace_with(|old| add(old, &g, false));
+                unsafe {
+                    t.grad
+                        .as_ref()
+                        .unwrap()
+                        .replace_with(|old| add(old, g.as_ptr().as_ref().unwrap(), false));
+                }
             }
         }
     }
@@ -128,11 +132,3 @@ impl<'a> PartialEq for Tensor<'a> {
     }
 }
 impl<'a> Eq for Tensor<'a> {}
-
-// Function Trait Definitions
-pub trait Function {
-    fn apply(&self) -> Tensor;
-    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2];
-    fn forward(&self) -> Array<f64>;
-    fn parents(&self) -> [&Tensor; 2];
-}
