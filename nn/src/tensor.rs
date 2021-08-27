@@ -1,89 +1,76 @@
-#![allow(dead_code)]
 #![allow(unused)]
 use super::ops::Function;
-use arrayfire::{add, constant, div, exp, identity, matmul, mean, print, randn, Array, Dim4};
-use core::cmp::{Eq, PartialEq};
-use std::{cell::RefCell, ops::Add, ops::Mul, ops::Sub};
+use arrayfire::add;
+use arrayfire::{constant, Array};
+use std::cell::RefCell;
+use std::ops::{Add, Deref, Mul};
+use std::rc::Rc;
 
-pub struct Tensor<'a> {
-    pub data: Array<f64>,
-    pub grad: Option<RefCell<Array<f64>>>,
-    pub _ctx: Option<&'a dyn Function>,
+// The make do tensor class which is a wrapper around Rc<WTen>.
+pub struct Tensor(pub Rc<WTen>);
+
+impl Tensor {
+    pub fn new(data: Array<f64>, _ctx: Option<Box<dyn Function>>) -> Self {
+        Self(Rc::new(WTen::new(data, _ctx)))
+    }
+
+    pub fn get(&self) -> Tensor {
+        Self(Rc::clone(&self.0))
+    }
 }
 
-impl<'a> Tensor<'a> {
-    // Main Creation Function
-    pub fn new(data: Array<f64>, _ctx: Option<&'a dyn Function>) -> Self {
+// Basic Operations
+impl Deref for Tensor {
+    type Target = WTen;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Add for &Tensor {
+    type Output = Tensor;
+    fn add(self, rhs: Self) -> Self::Output {
+        super::ops::Add::apply(self.get(), rhs.get())
+    }
+}
+
+impl Mul for &Tensor {
+    type Output = Tensor;
+    fn mul(self, rhs: Self) -> Self::Output {
+        super::ops::Mul::apply(self.get(), rhs.get())
+    }
+}
+
+// The actual "Tensor", everything inside the Tensor gets derefed to this tensor. This is named
+// "WTen"; however, the above should have been named WTen and this should have been named Tensor,
+// but this sacrifice had to be made for better readability.
+pub struct WTen {
+    pub data: Array<f64>,
+    pub grad: RefCell<Array<f64>>,
+    pub _ctx: Option<Box<dyn Function>>,
+}
+
+impl WTen {
+    pub fn new(data: Array<f64>, _ctx: Option<Box<dyn Function>>) -> Self {
         Self {
-            grad: None,
+            grad: RefCell::new(constant(0., data.dims())),
             data,
             _ctx,
         }
     }
 
-    // Internal Representation Function
-    pub fn assign(&mut self, x: Array<f64>) {
-        self.data = x;
-    }
-
-    pub fn shape(&self) -> Dim4 {
-        self.data.dims()
-    }
-
-    // Constructors
-    pub fn zeros(dims: Dim4) -> Self {
-        Tensor::new(constant(0.0f64, dims), None)
-    }
-
-    pub fn randn(dims: Dim4) -> Self {
-        Tensor::new(randn(dims), None)
-    }
-
-    pub fn eye(dims: Dim4) -> Self {
-        Tensor::new(identity(dims), None)
-    }
-
-    pub fn single(value: f64, dim: Dim4) -> Self {
-        Tensor::new(constant(value, dim), None)
-    }
-
-    // Other Functions
-    pub fn mean(&self, axis: i64) -> Array<f64> {
-        mean(&self.data, axis)
-    }
-
-    pub fn dot(&self, w: Array<f64>) -> Array<f64> {
-        matmul(
-            &self.data,
-            &w,
-            arrayfire::MatProp::NONE,
-            arrayfire::MatProp::NONE,
-        )
-    }
-
-    pub fn sigmoid(&self) -> Array<f64> {
-        let y = exp(&self.data);
-        div(&y, &(&y + 1), false)
-    }
-
-    // Backward pass
-    fn _deepwalk(
-        node: &'a Tensor<'a>,
-        nodes: &'_ mut Vec<&'a Tensor<'a>>,
-        visited: &mut Vec<&'a Tensor<'a>>,
-    ) {
+    fn _deepwalk<'a>(node: &'a WTen, nodes: &mut Vec<&'a WTen>, visited: &mut Vec<&'a WTen>) {
         if let Some(n) = &node._ctx {
             visited.push(node);
             for i in n.parents() {
-                if !visited.contains(&i) {
-                    Self::_deepwalk(i, nodes, visited);
+                if !visited.contains(&i.0.as_ref()) {
+                    Self::_deepwalk(i, nodes, visited)
                 }
             }
         }
-        nodes.push(node);
     }
 
-    fn walk(&'a self) -> Vec<&Tensor> {
+    fn walk(&self) -> Vec<&WTen> {
         let mut nodes = Vec::new();
         let mut visited = Vec::new();
         Self::_deepwalk(self, &mut nodes, &mut visited);
@@ -91,61 +78,21 @@ impl<'a> Tensor<'a> {
         nodes
     }
 
-    pub fn backward(&mut self) {
-        self.grad = Some(RefCell::new(constant(1., self.data.dims())));
+    pub fn backward(&self) {
+        self.grad.replace(constant(1., self.data.dims()));
         for t0 in self.walk() {
-            let grads = t0
-                ._ctx
-                .as_ref()
-                .unwrap()
-                .backward(t0.grad.as_ref().unwrap().try_borrow().unwrap());
+            let grads = t0._ctx.as_ref().unwrap().backward(&t0.grad);
             for (t, g) in t0._ctx.as_ref().unwrap().parents().iter().zip(grads) {
-                if let Some(n) = &t.grad {
-                    n.replace_with(|old| add(old, &g, false));
-                }
+                t.grad.replace_with(|old| add(old, &g, false));
             }
         }
     }
 }
 
-// Helper Function Definitions
-impl<'a> std::fmt::Display for Tensor<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", print(&self.data))
-    }
-}
-
-impl<'a> PartialEq for Tensor<'a> {
+impl PartialEq for WTen {
     fn eq(&self, other: &Self) -> bool {
         std::ptr::eq(self, other)
     }
 }
-impl<'a> Eq for Tensor<'a> {}
 
-// Mathematical Traits Definitions
-// The basic operation traits return the respective operation and it is up to the user to call the
-// apply function to get the tensor.
-// TODO: Implement "things" such that these operations return Tensor instead of the operations
-impl<'a> Add for &'a Tensor<'a> {
-    type Output = super::ops::Add<'a>;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        super::ops::Add::new([self, rhs])
-    }
-}
-
-impl<'a> Sub for &'a Tensor<'a> {
-    type Output = super::ops::Sub<'a>;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        super::ops::Sub::new([self, rhs])
-    }
-}
-
-impl<'a> Mul for &'a Tensor<'a> {
-    type Output = super::ops::Mul<'a>;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        super::ops::Mul::new([self, rhs])
-    }
-}
+impl Eq for WTen {}

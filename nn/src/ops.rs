@@ -1,162 +1,108 @@
+#![allow(dead_code)]
 #![allow(unused)]
 use super::tensor::Tensor;
-use arrayfire::{matmul, mul, Array};
-use std::{
-    borrow::Borrow,
-    cell::{Ref, RefCell},
-};
-
-// Function Trait Defns
+use arrayfire::{matmul, Array};
+use std::{borrow::Borrow, cell::RefCell};
 pub trait Function {
-    fn apply(&self) -> Tensor;
-    fn backward(&self, grad: Ref<Array<f64>>) -> [Array<f64>; 2];
-    fn forward(&self) -> Array<f64>;
-    fn parents(&self) -> [&Tensor; 2];
+    fn parents(&self) -> &[Tensor; 2];
+    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2];
 }
 
-// Basic Operations
-pub struct Add<'a> {
-    parents: [&'a Tensor<'a>; 2],
+pub struct Add {
+    parents: [Tensor; 2],
 }
 
-impl<'a> Add<'a> {
-    pub fn new(parents: [&'a Tensor; 2]) -> Self {
-        Self { parents }
-    }
-}
-
-impl<'a> Function for Add<'a> {
-    fn apply(&self) -> Tensor {
-        Tensor::new(self.forward(), Some(self))
-    }
-
-    fn forward(&self) -> Array<f64> {
-        &self.parents[0].data + &self.parents[1].data
-    }
-
-    fn backward(&self, grad: Ref<Array<f64>>) -> [Array<f64>; 2] {
-        [grad.copy(), grad.copy()]
-    }
-
-    fn parents(&self) -> [&Tensor; 2] {
-        self.parents
+impl Add {
+    pub fn apply(p1: Tensor, p2: Tensor) -> Tensor {
+        Tensor::new(
+            &p1.data + &p2.data,
+            Some(Box::new(Self { parents: [p1, p2] })),
+        )
     }
 }
 
-pub struct Sub<'a> {
-    parents: [&'a Tensor<'a>; 2],
-}
+impl Function for Add {
+    fn parents(&self) -> &[Tensor; 2] {
+        &self.parents
+    }
 
-impl<'a> Sub<'a> {
-    pub fn new(parents: [&'a Tensor; 2]) -> Self {
-        Self { parents }
+    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
+        // TODO: Remove Various Clones
+        [grad.borrow().clone(), grad.borrow().clone()]
     }
 }
 
-impl<'a> Function for Sub<'a> {
-    fn apply(&self) -> Tensor {
-        Tensor::new(self.forward(), Some(self))
-    }
+pub struct Mul {
+    parents: [Tensor; 2],
+}
 
-    fn forward(&self) -> Array<f64> {
-        &self.parents[0].data - &self.parents[1].data
-    }
-
-    fn backward(&self, grad: Ref<Array<f64>>) -> [Array<f64>; 2] {
-        [grad.copy(), -grad.copy()]
-    }
-
-    fn parents(&self) -> [&Tensor; 2] {
-        self.parents
+impl Mul {
+    pub fn apply(p1: Tensor, p2: Tensor) -> Tensor {
+        Tensor::new(
+            &p1.data * &p2.data,
+            Some(Box::new(Self { parents: [p1, p2] })),
+        )
     }
 }
 
-pub struct Mul<'a> {
-    parents: [&'a Tensor<'a>; 2],
-}
-
-impl<'a> Mul<'a> {
-    pub fn new(parents: [&'a Tensor; 2]) -> Self {
-        Self { parents }
-    }
-}
-
-impl<'a> Function for Mul<'a> {
-    fn apply(&self) -> Tensor {
-        Tensor::new(self.forward(), Some(self))
+impl Function for Mul {
+    fn parents(&self) -> &[Tensor; 2] {
+        &self.parents
     }
 
-    fn forward(&self) -> Array<f64> {
-        &self.parents[0].data * &self.parents[1].data
-    }
-
-    fn backward(&self, grad: Ref<Array<f64>>) -> [Array<f64>; 2] {
+    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
         [
-            &self.parents[1].data * grad.copy(),
-            &self.parents[0].data * grad.copy(),
+            grad.borrow().clone() * &self.parents[1].data,
+            grad.borrow().clone() * &self.parents[1].data,
         ]
     }
-
-    fn parents(&self) -> [&Tensor; 2] {
-        self.parents
-    }
 }
 
-// TODO: Implement Power
-pub struct Pow<'a> {
-    parents: [&'a Tensor<'a>; 2],
+pub struct MatMul {
+    parents: [Tensor; 2],
 }
 
-impl<'a> Pow<'a> {
-    pub fn new(parents: [&'a Tensor; 2]) -> Self {
-        Self { parents }
-    }
-}
-
-// Other Operations
-pub struct MatMul<'a> {
-    parents: [&'a Tensor<'a>; 2],
-}
-
-impl<'a> MatMul<'a> {
-    pub fn new(parents: [&'a Tensor; 2]) -> Self {
-        Self { parents }
-    }
-}
-
-impl<'a> Function for MatMul<'a> {
-    fn apply(&self) -> Tensor {
-        Tensor::new(self.forward(), Some(self))
+impl MatMul {
+    pub fn apply(p1: &Tensor, p2: &Tensor) -> Tensor {
+        Tensor::new(
+            MatMul::forward(p1, p2),
+            Some(Box::new(Self {
+                parents: [p1.get(), p2.get()],
+            })),
+        )
     }
 
-    fn forward(&self) -> Array<f64> {
+    fn forward(p1: &Tensor, p2: &Tensor) -> Array<f64> {
         matmul(
-            &self.parents[0].data,
-            &self.parents[1].data,
+            &p1.data,
+            &p2.data,
             arrayfire::MatProp::NONE,
             arrayfire::MatProp::TRANS,
         )
     }
+}
 
-    fn backward(&self, grad: Ref<Array<f64>>) -> [Array<f64>; 2] {
-        [
-            matmul(
-                grad.borrow(),
-                &self.parents[1].data,
-                arrayfire::MatProp::NONE,
-                arrayfire::MatProp::TRANS,
-            ),
-            matmul(
-                &self.parents[0].data,
-                grad.borrow(),
-                arrayfire::MatProp::TRANS,
-                arrayfire::MatProp::NONE,
-            ),
-        ]
+impl Function for MatMul {
+    fn parents(&self) -> &[Tensor; 2] {
+        &self.parents
     }
 
-    fn parents(&self) -> [&Tensor; 2] {
-        self.parents
+    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
+        unsafe {
+            [
+                matmul(
+                    &*grad.as_ptr(),
+                    &self.parents[1].data,
+                    arrayfire::MatProp::NONE,
+                    arrayfire::MatProp::TRANS,
+                ),
+                matmul(
+                    &*grad.as_ptr(),
+                    &self.parents[0].data,
+                    arrayfire::MatProp::TRANS,
+                    arrayfire::MatProp::NONE,
+                ),
+            ]
+        }
     }
 }
-// TODO: Add conv2d operation
