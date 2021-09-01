@@ -1,35 +1,31 @@
+#![allow(unused)]
 use super::traits::Model;
 
 // Imports
-use ndarray::{Array2, ArrayView2, Axis};
-use rand;
+use arrayfire::{dim4, matmul, randn, transpose, Array, MatProp};
 
 pub struct Linear<'a> {
-    data: Array2<f64>,
-    label: ArrayView2<'a, f64>,
-    theta: Array2<f64>,
+    data: Array<f64>,
+    label: &'a Array<f64>,
+    theta: Array<f64>,
 }
 
 impl<'a> Linear<'a> {
-    pub fn new(data: Array2<f64>, label: ArrayView2<'a, f64>) -> Self {
-        let theta = Array2::from_shape_fn((data.ncols(), 1), |(_, _)| rand::random());
+    pub fn new(data: Array<f64>, label: &'a Array<f64>) -> Self {
+        let theta = randn(dim4!(data.dims()[4], 1, 1, 1));
         Linear { data, label, theta }
     }
 }
 
 impl<'a> Model for Linear<'a> {
     fn normalize(&mut self) {
-        let mean = self.data.mean_axis(Axis(0)).unwrap();
-        let std = self.data.std_axis(Axis(0), 0.0.into());
-        if &std[[0]] != &0.0.into() {
-            self.data = (&self.data - mean) / std;
-        } else {
-            eprint!("The std is 0. Not normalized!");
-        }
+        let mean = arrayfire::mean(&self.data, 0);
+        let std = arrayfire::stdev_v2(&self.data, arrayfire::VarianceBias::DEFAULT, 0);
+        self.data = (&self.data - mean) / std;
     }
 
-    fn hypo(&self) -> ndarray::Array2<f64> {
-        self.data.dot(&self.theta)
+    fn hypo(&self) -> Array<f64> {
+        matmul(&self.data, &self.theta, MatProp::NONE, MatProp::NONE)
     }
 
     fn train(&mut self, alpha: f64, iter: i32) {
@@ -42,13 +38,17 @@ impl<'a> Model for Linear<'a> {
         }
     }
 
-    fn predict(&self, input: &Array2<f64>) -> Array2<f64> {
-        input.dot(&self.theta)
+    fn predict(&self, input: &Array<f64>) -> Array<f64> {
+        matmul(input, &self.theta, MatProp::NONE, MatProp::NONE)
     }
 
     fn step(&mut self, alpha: f64) {
-        let delta =
-            ((self.hypo() - &self.label).reversed_axes().dot(&self.data)).reversed_axes() * alpha;
+        let delta = matmul(
+            &transpose(&(self.hypo() - self.label), false),
+            &self.data,
+            MatProp::NONE,
+            MatProp::TRANS,
+        ) * alpha;
         self.theta = &self.theta - delta;
     }
 }

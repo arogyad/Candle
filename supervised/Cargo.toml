@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 ndarray = "0.15.3"
 num-traits = "0.2"
+arrayfire = "3.8"
 num-integer = "0.1.39"
 rand = "0.8.4"
 ndarray-linalg = "0.13.0"

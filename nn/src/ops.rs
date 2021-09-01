@@ -51,13 +51,14 @@ impl Function for Mul {
     }
 
     fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
-        [
-            grad.borrow().clone() * &self.parents[1].data,
-            grad.borrow().clone() * &self.parents[1].data,
-        ]
+        unsafe {
+            [
+                arrayfire::mul(&*grad.as_ptr(), &self.parents[1].data, false),
+                arrayfire::mul(&*grad.as_ptr(), &self.parents[0].data, false),
+            ]
+        }
     }
 }
-
 pub struct MatMul {
     parents: [Tensor; 2],
 }
