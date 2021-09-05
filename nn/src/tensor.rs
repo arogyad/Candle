@@ -1,14 +1,14 @@
 #![allow(unused)]
 use super::ops::Function;
-use arrayfire::add;
+use arrayfire::{add, dim4, print};
 use arrayfire::{constant, Array};
+use std::borrow::BorrowMut;
 use std::cell::RefCell;
 use std::ops::{Add, Deref, Mul};
 use std::rc::Rc;
 
 // The make do tensor class which is a wrapper around Rc<WTen>.
 pub struct Tensor(pub Rc<WTen>);
-
 impl Tensor {
     pub fn new(data: Array<f64>, _ctx: Option<Box<dyn Function>>) -> Self {
         Self(Rc::new(WTen::new(data, _ctx)))
@@ -67,6 +67,7 @@ impl WTen {
                     Self::_deepwalk(i, nodes, visited)
                 }
             }
+            nodes.push(node);
         }
     }
 
@@ -83,6 +84,7 @@ impl WTen {
         for t0 in self.walk() {
             let grads = t0._ctx.as_ref().unwrap().backward(&t0.grad);
             for (t, g) in t0._ctx.as_ref().unwrap().parents().iter().zip(grads) {
+                // println!("{:?}", g.dims());
                 t.grad.replace_with(|old| add(old, &g, false));
             }
         }

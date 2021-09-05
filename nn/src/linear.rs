@@ -1,10 +1,11 @@
 #![allow(unused)]
 use crate::model::Model;
 use crate::{ops::MatMul, tensor::Tensor};
-use arrayfire::{dim4, matmul, print, randu, Array};
+use arrayfire::{constant, dim4, matmul, print, randu, transpose, Array};
 
 pub struct Linear {
     pub weight: Tensor,
+    pub saved: Tensor,
     pub bias: Option<Tensor>,
 }
 
@@ -14,34 +15,34 @@ impl Linear {
             // Dimension in In Channels * Out Channels * 1 * 1 (Batch Size not yet implemented)
             Self {
                 weight: Tensor::new(randu(dim4!(out_channels, in_channels, 1, 1)), None),
-                bias: Some(Tensor::new(randu(dim4!(out_channels, 1, 1, 1)), None)),
+                bias: Some(Tensor::new(randu(dim4!(1, out_channels, 1, 1)), None)),
+                saved: Tensor::new(constant(1., dim4!(1, 1, 1, 1)), None),
             }
         } else {
             Self {
                 weight: Tensor::new(randu(dim4!(out_channels, in_channels, 1, 1)), None),
                 bias: None,
+                saved: Tensor::new(constant(1., dim4!(1, 1, 1, 1)), None),
             }
         }
     }
 }
 
 impl Model for Linear {
-    fn forward(&self, data: &Tensor) -> Tensor {
+    fn forward(&mut self, data: &Tensor) -> &Tensor {
         if let Some(n) = &self.bias {
-            // Doesn't work rn!
             let t1 = MatMul::apply(data, &self.weight);
             let t2 = &t1 + n;
-            t1
+            self.saved = t2;
+            &self.saved
         } else {
             let t1 = MatMul::apply(data, &self.weight);
-            t1
+            self.saved = t1;
+            &self.saved
         }
     }
 
     fn backward(&self) {
-        self.weight.backward();
-        if let Some(n) = &self.bias {
-            n.backward();
-        }
+        self.saved.backward();
     }
 }

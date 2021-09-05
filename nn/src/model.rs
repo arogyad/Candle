@@ -1,6 +1,6 @@
 use crate::tensor::Tensor;
 
 pub trait Model {
-    fn forward(&self, data: &Tensor) -> Tensor;
+    fn forward(&mut self, data: &Tensor) -> &Tensor;
     fn backward(&self);
 }

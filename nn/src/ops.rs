@@ -1,8 +1,14 @@
 #![allow(dead_code)]
 #![allow(unused)]
 use super::tensor::Tensor;
-use arrayfire::{matmul, Array};
+use arrayfire::{constant, dim4, matmul, print, tile, transpose, Array};
 use std::{borrow::Borrow, cell::RefCell};
+
+enum Dim {
+    Zero,
+    One,
+}
+
 pub trait Function {
     fn parents(&self) -> &[Tensor; 2];
     fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2];
@@ -15,9 +21,44 @@ pub struct Add {
 impl Add {
     pub fn apply(p1: Tensor, p2: Tensor) -> Tensor {
         Tensor::new(
-            &p1.data + &p2.data,
+            Add::broadcast_sum(&p1.data, &p2.data),
             Some(Box::new(Self { parents: [p1, p2] })),
         )
+    }
+    // Simple broadcasting addition, can do the same to create broadcasting sub, mul etc..
+    fn broadcast_sum(p1: &Array<f64>, p2: &Array<f64>) -> Array<f64> {
+        // dim -> which dimension needs broadcasting, here we only look at the first and the second
+        // as this makes the process simpler
+        match (&p1.dims(), &p2.dims()) {
+            // Check if the axis for broadcasting
+            (x, y) if x[0] != y[0] => {
+                if x[0] > y[0] {
+                    p1 + Add::tile_sum(p2, x[0] - y[0] + 1, Dim::Zero)
+                } else {
+                    p2 + Add::tile_sum(p1, y[0] - x[0] + 1, Dim::Zero)
+                }
+            }
+            (x, y) if x[1] != y[1] => {
+                if x[1] > y[1] {
+                    p1 + Add::tile_sum(p2, x[1] - y[1] + 1, Dim::One)
+                } else {
+                    p2 + Add::tile_sum(p1, y[1] - x[1] + 1, Dim::One)
+                }
+            }
+            _ => p1 + p2,
+        }
+    }
+
+    // tiles the smaller array to the size of larger array on the given dimension
+    // input -> The smaller among the two arrays
+    // dim: Dimension to be broadcasted
+    // num_tiles ->  no. of times to be tiled i.e, dim of larger - dim of smaller + 1 along dim
+    #[inline]
+    fn tile_sum(input: &Array<f64>, num_tile: u64, dim: Dim) -> Array<f64> {
+        match dim {
+            Dim::Zero => tile(input, dim4!(num_tile, 1, 1, 1)),
+            Dim::One => tile(input, dim4!(1, num_tile, 1, 1)),
+        }
     }
 }
 
@@ -51,6 +92,8 @@ impl Function for Mul {
     }
 
     fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
+        unsafe { println!("{:?}", (*grad.as_ptr()).dims()) }
+        println!("Here");
         unsafe {
             [
                 arrayfire::mul(&*grad.as_ptr(), &self.parents[1].data, false),
@@ -95,13 +138,17 @@ impl Function for MatMul {
                     &*grad.as_ptr(),
                     &self.parents[1].data,
                     arrayfire::MatProp::NONE,
-                    arrayfire::MatProp::TRANS,
-                ),
-                matmul(
-                    &*grad.as_ptr(),
-                    &self.parents[0].data,
-                    arrayfire::MatProp::TRANS,
                     arrayfire::MatProp::NONE,
+                ),
+                // TODO: Check this maths
+                transpose(
+                    &matmul(
+                        &self.parents[0].data,
+                        &*grad.as_ptr(),
+                        arrayfire::MatProp::TRANS,
+                        arrayfire::MatProp::NONE,
+                    ),
+                    false,
                 ),
             ]
         }
