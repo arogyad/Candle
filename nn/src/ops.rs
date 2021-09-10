@@ -2,7 +2,7 @@
 #![allow(unused)]
 use super::tensor::Tensor;
 use arrayfire::{constant, dim4, matmul, print, tile, transpose, Array};
-use std::{borrow::Borrow, cell::RefCell};
+use std::cell::RefCell;
 
 enum Dim {
     Zero,
@@ -68,7 +68,6 @@ impl Function for Add {
     }
 
     fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
-        // TODO: Remove Various Clones
         [grad.borrow().clone(), grad.borrow().clone()]
     }
 }
@@ -92,8 +91,7 @@ impl Function for Mul {
     }
 
     fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
-        unsafe { println!("{:?}", (*grad.as_ptr()).dims()) }
-        println!("Here");
+        // Grads are implicitly defined as const(1., ..) so this dereference shouldn't cause error
         unsafe {
             [
                 arrayfire::mul(&*grad.as_ptr(), &self.parents[1].data, false),

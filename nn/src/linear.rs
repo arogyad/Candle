@@ -30,16 +30,14 @@ impl Linear {
 
 impl Model for Linear {
     fn forward(&mut self, data: &Tensor) -> &Tensor {
+        let t1 = MatMul::apply(data, &self.weight);
         if let Some(n) = &self.bias {
-            let t1 = MatMul::apply(data, &self.weight);
             let t2 = &t1 + n;
             self.saved = t2;
-            &self.saved
         } else {
-            let t1 = MatMul::apply(data, &self.weight);
             self.saved = t1;
-            &self.saved
         }
+        &self.saved
     }
 
     fn backward(&self) {

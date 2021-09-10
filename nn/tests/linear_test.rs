@@ -20,5 +20,4 @@ fn linear_class() {
     let mut l = Linear::new(256, 128, false);
     l.forward(&data);
     l.backward();
-    unsafe { print(&(*data.grad.as_ptr())) }
 }

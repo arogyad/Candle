@@ -1,5 +1,5 @@
 #![allow(unused)]
-use arrayfire::{constant, dim4, print};
+use arrayfire::{constant, convolve2, convolve2_nn, dim4, print};
 use nn::ops::MatMul;
 use nn::tensor::Tensor;
 #[test]
