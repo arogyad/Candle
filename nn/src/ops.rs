@@ -151,28 +151,3 @@ impl Function for MatMul {
         }
     }
 }
-
-// struct Conv2d{
-//     parents: [Tensor; 2]
-// }
-
-// impl Conv2d {
-//     pub fn apply() {
-//          Image[H x W x C x B] (*) Filter[H x W x I x O]
-//          Image[HxWx1] (*) Filter(1,1)
-//          Image[HxWx2] (*) Filter(2,1)
-//          Image[HxWx3] (*) Filter(3,1)
-//
-//          Image[HxWx1] (*) Filter(1,2)
-//          Image[HxWx2] (*) Filter(2,2)
-//          Image[HxWx3] (*) Filter(3,2)
-//
-//          Image[HxWx1] (*) Filter(1,3)
-//          Image[HxWx2] (*) Filter(2,3)
-//          Image[HxWx3] (*) Filter(3,3)
-//
-//          Image[HxWx1] (*) Filter(1,4)
-//          Image[HxWx2] (*) Filter(2,4)
-//          Image[HxWx3] (*) Filter(3,4)
-//     }
-// }
