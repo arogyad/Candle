@@ -1,35 +1,22 @@
-#![allow(unused)]
-use arrayfire::{constant, dim4, randn, Array};
+use arrayfire::{constant, dim4};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use nn::conv2d::Conv2d;
-use rand::{self, thread_rng, Rng};
-fn conv(
-    in_channel: u64,
-    out_channel: u64,
-    kernel_size: [u64; 2],
-    strides: [u64; 2],
-    padding: [u64; 2],
-) {
-    let mut c = Conv2d::new(in_channel, out_channel, kernel_size, strides, padding);
-    let data: Array<f64> = randn(dim4!(256, 256, in_channel, 1));
-    print!("\n");
-    println!(
-        "In channel: {} Out channel: {}, Kernel_size:{:?} Stride: {:?} Padding: {:?}",
-        in_channel, out_channel, kernel_size, strides, padding
-    );
-    c.apply(&data);
+use rand::{self, Rng};
+
+fn conv_test(in_channel: u64, out_channel: u64) {
+    let data = constant(1., dim4!(5, 5, in_channel, 1));
+    let mut c = Conv2d::new(in_channel, out_channel, [2, 3], [3, 1], [1, 1], [1, 1]);
+    let o = c.apply(&data);
+    let _p = c.backward(&o);
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let mut rng = thread_rng();
-    c.bench_function("conv random", |b| {
+    let mut rng = rand::thread_rng();
+    c.bench_function("conv all_rand", |b| {
         b.iter(|| {
-            conv(
-                black_box(rng.gen_range(3..=5)),
-                black_box(rng.gen_range(8..=12)),
-                black_box([rng.gen_range(1..=5), rng.gen_range(1..=5)]),
-                black_box([rng.gen_range(1..=3), rng.gen_range(1..=3)]),
-                black_box([rng.gen_range(1..=4), rng.gen_range(1..=4)]),
+            conv_test(
+                black_box(rng.gen_range(3..5)),
+                black_box(rng.gen_range(5..6)),
             )
         })
     });

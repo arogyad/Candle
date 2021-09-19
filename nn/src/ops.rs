@@ -1,7 +1,10 @@
 #![allow(dead_code)]
 #![allow(unused)]
 use super::tensor::Tensor;
-use arrayfire::{constant, dim4, matmul, print, tile, transpose, Array};
+use arrayfire::{
+    assign_seq, constant, convolve2_nn, dim4, index, matmul, print, seq, tile, transpose, Array,
+    Seq,
+};
 use std::cell::RefCell;
 
 enum Dim {
@@ -10,7 +13,7 @@ enum Dim {
 }
 
 pub trait Function {
-    fn parents(&self) -> &[Tensor; 2];
+    fn parents(&self) -> &[Tensor];
     fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2];
 }
 
@@ -63,7 +66,7 @@ impl Add {
 }
 
 impl Function for Add {
-    fn parents(&self) -> &[Tensor; 2] {
+    fn parents(&self) -> &[Tensor] {
         &self.parents
     }
 
@@ -86,7 +89,7 @@ impl Mul {
 }
 
 impl Function for Mul {
-    fn parents(&self) -> &[Tensor; 2] {
+    fn parents(&self) -> &[Tensor] {
         &self.parents
     }
 
@@ -100,6 +103,7 @@ impl Function for Mul {
         }
     }
 }
+
 pub struct MatMul {
     parents: [Tensor; 2],
 }
@@ -125,7 +129,7 @@ impl MatMul {
 }
 
 impl Function for MatMul {
-    fn parents(&self) -> &[Tensor; 2] {
+    fn parents(&self) -> &[Tensor] {
         &self.parents
     }
 

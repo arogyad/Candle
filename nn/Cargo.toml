@@ -7,6 +7,7 @@ edition = "2018"
 
 [dependencies]
 arrayfire = "3.8"
+tokio = { version = "1.11.0", features = ["full"] }
 rand = "0.8.0"
 
 [dev-dependencies]

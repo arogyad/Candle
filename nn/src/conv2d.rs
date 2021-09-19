@@ -1,14 +1,21 @@
-use arrayfire::{assign_seq, constant, dim4, dot, flat, index, randn, seq, Array, Dim4, Seq};
+#![allow(unused)]
+use crate::ops::Function;
+use crate::tensor::Tensor;
+use arrayfire::{
+    assign_seq, constant, convolve2_gradient_nn, convolve2_nn, dim4, index, randn, seq, Array,
+    ConvGradientType, Dim4, Seq,
+};
+use std::cell::RefCell;
 
-// Convolution as described in The Deep Learning Book. No kernel flipping, no bias or dilation
 pub struct Conv2d {
-    weight: Option<Array<f64>>,
-    // input: Array<f64>,
-    in_channel: u64,
-    out_channel: u64,
-    kernel_size: [u64; 2],
-    strides: [u64; 2],
-    padding: [u64; 2],
+    pub w_a_i: Option<[Tensor; 2]>,
+    pub output: Option<Tensor>,
+    pub in_channel: u64,
+    pub out_channel: u64,
+    pub kernel_size: Dim4,
+    pub strides: Dim4,
+    pub padding: Dim4,
+    pub dilation: Dim4,
 }
 
 impl Conv2d {
@@ -18,49 +25,68 @@ impl Conv2d {
         kernel_size: [u64; 2],
         strides: [u64; 2],
         padding: [u64; 2],
+        dilation: [u64; 2],
     ) -> Self {
         Self {
-            weight: None,
+            w_a_i: None,
+            output: None,
             in_channel,
             out_channel,
-            kernel_size,
-            strides,
-            padding,
+            kernel_size: dim4!(kernel_size[0], kernel_size[1]),
+            strides: dim4!(strides[0], strides[1]),
+            padding: dim4!(
+                if padding[0] == 0 { 1 } else { padding[0] },
+                if padding[1] == 0 { 1 } else { padding[1] }
+            ),
+            dilation: dim4!(dilation[0], dilation[1]),
         }
     }
 
-    pub fn apply(&mut self, data: &Array<f64>) -> Array<f64> {
+    pub fn apply(&mut self, data: Tensor) {
         // data -> [H x W x C x O]
-        let dim = data.dims();
-        if !&self.weight.is_some() {
+        let dim = data.data.dims();
+        if !&self.w_a_i.is_some() {
             // Weight size -> [KS[0] x KS[1] x C x O]
-            self.weight = Some(randn(dim4!(
-                self.kernel_size[0],
-                self.kernel_size[1],
-                self.in_channel,
-                self.out_channel
-            )));
+            self.w_a_i = Some([
+                Tensor::new(
+                    randn(dim4!(
+                        self.kernel_size[0],
+                        self.kernel_size[1],
+                        self.in_channel,
+                        self.out_channel
+                    )),
+                    None,
+                ),
+                data.get(),
+            ]);
         }
-        self.forward(data, &dim)
+        self.output = Some(Tensor::new(self.forward(&dim), None));
     }
 
     // dim -> dimension of initial data
-    fn forward(&mut self, data: &Array<f64>, dim: &Dim4) -> Array<f64> {
-        // Out Shape
-        let r_d = self.make_padding(data);
-        let ox =
-            ((dim[0] + 2 * self.padding[0] - (self.kernel_size[0] - 1) - 1) / self.strides[0]) + 1;
-        let oy =
-            ((dim[1] + 2 * self.padding[1] - (self.kernel_size[1] - 1) - 1) / self.strides[1]) + 1;
+    pub fn forward(&self, dim: &Dim4) -> Array<f64> {
+        let dim = self.w_a_i.as_ref().unwrap()[1].data.dims();
 
-        // The array to be returned
-        let mut out: Array<f64> = constant(0.0, dim4!(ox, oy, self.out_channel, dim[3]));
-        // i -> num of output channels
-        // j -> num of in channels
-        // Each Operation -> input (*) Weight[..,.., i, j]
-        // Out -> [ox, oy, out_channel, N]
+        // Out Shapes
+        let ox =
+            ((dim[0] + 2 * self.padding[0] - (self.dilation[0] * (self.kernel_size[0] - 1)) - 1)
+                / self.strides[0])
+                + 1;
+
+        let oy =
+            ((dim[1] + 2 * self.padding[1] - (self.dilation[1] * (self.kernel_size[1] - 1)) - 1)
+                / self.strides[1])
+                + 1;
+
+        // The array to be returned, named after the beloved arrayfire
+        let mut af_out = constant(0., dim4!(ox, oy, self.out_channel, dim[3]));
         for i in 0..self.out_channel {
-            let mut to_be_added = constant(0., dim4!(ox, oy, 1, 1));
+            let mut af_t = constant(0., dim4!(ox, oy, 1, 1));
+
+            // i -> num of output channels
+            // j -> num of in channels
+            // Each Operation -> input (*) Weight[..,.., i, j]
+            // Out -> [ox, oy, out_channel, N]
             for j in 0..self.in_channel {
                 // Weight[i][j]
                 // This creates a 2d array of weight
@@ -73,127 +99,80 @@ impl Conv2d {
                 // This creates the 2d array of data
                 let seqs_d = [seq!(), seq!(), Seq::new(j as i32, j as i32, 1)];
 
-                // this creates the 2d array of output
-                let seqs_o = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
-
-                // This is the 2dimensional weight
-                let s1 = index(self.weight.as_ref().unwrap(), &seqs_w);
+                let s1 = index(&self.w_a_i.as_ref().unwrap()[0].data, &seqs_w);
                 // This takes out 1 dimension from data
-                let s2 = index(&r_d, &seqs_d);
+                let s2 = index(&self.w_a_i.as_ref().unwrap()[1].data, &seqs_d);
 
-                let mut s3 = index(&out, &seqs_o);
-
-                // This does the convolution operation and the moving around in the image space
-                Conv2d::do_conv(&s2, &s1, self, &mut s3, s2.dims());
+                // Arrayfire has conv operation, god bless.
+                let af_conv = convolve2_nn(&s2, &s1, self.strides, self.padding, self.dilation);
 
                 // Σ over the given dimension. This operation needs to be made more efficient
-                to_be_added += s3;
+                af_t += af_conv;
             }
             let seqs_o = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
-            assign_seq(&mut out, &seqs_o, &to_be_added);
+            assign_seq(&mut af_out, &seqs_o, &af_t);
         }
-        out
+        af_out
+    }
+}
+
+impl Function for Conv2d {
+    fn parents(&self) -> &[Tensor] {
+        self.w_a_i.as_ref().unwrap()
     }
 
-    // input -> 2 dimensional input array of data of size [H x W x C[j] x N]
-    // filter -> 2 dimensional filter array of weight size of [ Kernel_Size ]
-    // s -> current thing, to get padding and stuff
-    // out -> Two dimensional array from the output, size [ox X oy]
-    // dim: dimension of data to keep track of breaking condition
-    // current: the current location of the kernal
-    pub fn do_conv(
-        input: &Array<f64>,
-        filter: &Array<f64>,
-        s: &Conv2d,
-        out: &mut Array<f64>,
-        dim: Dim4,
-    ) {
-        // Current -> current position of the filter in the input array
-        let mut current = [0; 2];
-        // out_current -> current position of output in the output array
-        let mut out_current = [0; 2];
+    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
+        unsafe {
+            let gdim = grad.as_ptr().as_ref().unwrap().dims();
+            let ddim = self.w_a_i.as_ref().unwrap()[1].data.dims();
+            let mut dx = constant(0., ddim);
+            let mut dw = constant(0., self.w_a_i.as_ref().unwrap()[0].data.dims());
+            for i in 0..self.in_channel {
+                let mut af_dx = constant(0., dim4!(ddim[0], ddim[1], 1, 1));
+                for j in 0..self.out_channel {
+                    let seqs_w = [
+                        seq!(),
+                        seq!(),
+                        Seq::new(i as i32, i as i32, 1),
+                        Seq::new(j as i32, j as i32, 1),
+                    ];
+                    let seqs_d = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
+                    let seqs_g = [seq!(), seq!(), Seq::new(j as i32, j as i32, 1)];
 
-        // We check if the 1st dimension has exhausted or not. If exhausted we quit, else we
-        // continue. Exhaused as in, the kernel_size[0] + the current position from where we
-        // perform the conv operation is greater than the 0th dimension. We don't have to check the
-        // 1st dimension as it is checked by the match statement below.
-        while s.kernel_size[0] + current[0] <= dim[0] {
-            // This sequence is used to form the 2dimensional array from the input which is the
-            // size of the kernels. Arrayfire is weird in this regard. The sequence [0,1,1] takes 2
-            // rows the 0th and the 1th unlike anyother library.
-            let s1 = [
-                Seq::new(
-                    current[0] as u32,
-                    (current[0] + s.kernel_size[0] - 1) as u32,
-                    1,
-                ),
-                Seq::new(
-                    current[1] as u32,
-                    (current[1] + s.kernel_size[1] - 1) as u32,
-                    1,
-                ),
-            ];
+                    let s1 = index(&self.w_a_i.as_ref().unwrap()[0].data, &seqs_w);
+                    let s2 = index(&self.w_a_i.as_ref().unwrap()[1].data, &seqs_d);
+                    let s3 = index(grad.as_ptr().as_ref().unwrap(), &seqs_g);
 
-            // The output array's position must also be managed, as the kernel's position in the
-            // input array changes, the output position changes as well.
-            let out_c_s = [
-                Seq::new(out_current[0], out_current[0], 1),
-                Seq::new(out_current[1], out_current[1], 1),
-            ];
+                    // God bless arrayfire
+                    let data_grad = convolve2_gradient_nn(
+                        &s3,
+                        &s2,
+                        &s1,
+                        &s3,
+                        self.strides,
+                        self.padding,
+                        self.dilation,
+                        ConvGradientType::DATA,
+                    );
 
-            // From the right, we perform the conv operation on the 2d array of input and filter.
-            // Then the result is assigned to the corresponding position in out.
-            assign_seq(out, &out_c_s, &Conv2d::_do_conv(&index(input, &s1), filter));
-
-            // This checks if we have/are about to jump out of the bound in the 1st dimension and
-            // performs the action accordingly.
-            match current[1] + s.kernel_size[1] - 1 + s.strides[1] {
-                x if x >= dim[1] => {
-                    current = [current[0] + s.strides[0], 0];
-                    out_current = [1 + out_current[0], 0];
+                    // God bless arrayfire
+                    let w_grad = convolve2_gradient_nn(
+                        &s3,
+                        &s2,
+                        &s1,
+                        &s3,
+                        self.strides,
+                        self.padding,
+                        self.dilation,
+                        ConvGradientType::FILTER,
+                    );
+                    af_dx += data_grad;
+                    assign_seq(&mut dw, &seqs_w, &w_grad);
                 }
-                _ => {
-                    current[1] += s.strides[1];
-                    out_current[1] += 1;
-                }
+                let seqs_o = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
+                assign_seq(&mut dx, &seqs_o, &af_dx);
             }
+            [dw, dx]
         }
-    }
-
-    // Perform vector product
-    pub fn _do_conv(data_s: &Array<f64>, filter: &Array<f64>) -> Array<f64> {
-        dot(
-            &flat(data_s),
-            &flat(filter),
-            arrayfire::MatProp::NONE,
-            arrayfire::MatProp::NONE,
-        )
-    }
-
-    // Creating of padding, currently only 0 padding.
-    fn make_padding(&self, data: &Array<f64>) -> Array<f64> {
-        let dim = data.dims();
-        let mut _padded_data = constant(
-            0.,
-            dim4!(
-                dim[0] + 2 * self.padding[0],
-                dim[1] + 2 * self.padding[1],
-                dim[2],
-                dim[3]
-            ),
-        );
-        let s0 = Seq::new(
-            self.padding[0] as u32,
-            (dim[0] + self.padding[0] - 1) as u32,
-            1,
-        );
-        let s1 = Seq::new(
-            self.padding[1] as u32,
-            (self.padding[1] + dim[1] - 1) as u32,
-            1,
-        );
-        let s2 = Seq::new(0, dim[2] as u32 - 1, 1);
-        assign_seq(&mut _padded_data, &[s0, s1, s2], data);
-        _padded_data
     }
 }
