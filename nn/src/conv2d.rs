@@ -121,58 +121,56 @@ impl Function for Conv2d {
         self.w_a_i.as_ref().unwrap()
     }
 
-    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
-        unsafe {
-            let gdim = grad.as_ptr().as_ref().unwrap().dims();
-            let ddim = self.w_a_i.as_ref().unwrap()[1].data.dims();
-            let mut dx = constant(0., ddim);
-            let mut dw = constant(0., self.w_a_i.as_ref().unwrap()[0].data.dims());
-            for i in 0..self.in_channel {
-                let mut af_dx = constant(0., dim4!(ddim[0], ddim[1], 1, 1));
-                for j in 0..self.out_channel {
-                    let seqs_w = [
-                        seq!(),
-                        seq!(),
-                        Seq::new(i as i32, i as i32, 1),
-                        Seq::new(j as i32, j as i32, 1),
-                    ];
-                    let seqs_d = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
-                    let seqs_g = [seq!(), seq!(), Seq::new(j as i32, j as i32, 1)];
+    fn backward(&self, grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2] {
+        let gdim = grad.unwrap().dims();
+        let ddim = self.w_a_i.as_ref().unwrap()[1].data.dims();
+        let mut dx = constant(0., ddim);
+        let mut dw = constant(0., self.w_a_i.as_ref().unwrap()[0].data.dims());
+        for i in 0..self.in_channel {
+            let mut af_dx = constant(0., dim4!(ddim[0], ddim[1], 1, 1));
+            for j in 0..self.out_channel {
+                let seqs_w = [
+                    seq!(),
+                    seq!(),
+                    Seq::new(i as i32, i as i32, 1),
+                    Seq::new(j as i32, j as i32, 1),
+                ];
+                let seqs_d = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
+                let seqs_g = [seq!(), seq!(), Seq::new(j as i32, j as i32, 1)];
 
-                    let s1 = index(&self.w_a_i.as_ref().unwrap()[0].data, &seqs_w);
-                    let s2 = index(&self.w_a_i.as_ref().unwrap()[1].data, &seqs_d);
-                    let s3 = index(grad.as_ptr().as_ref().unwrap(), &seqs_g);
+                let s1 = index(&self.w_a_i.as_ref().unwrap()[0].data, &seqs_w);
+                let s2 = index(&self.w_a_i.as_ref().unwrap()[1].data, &seqs_d);
+                let s3 = index(grad.unwrap(), &seqs_g);
 
-                    // God bless arrayfire
-                    let data_grad = convolve2_gradient_nn(
-                        &s3,
-                        &s2,
-                        &s1,
-                        &s3,
-                        self.strides,
-                        self.padding,
-                        self.dilation,
-                        ConvGradientType::DATA,
-                    );
+                // God bless arrayfire
+                let data_grad = convolve2_gradient_nn(
+                    &s3,
+                    &s2,
+                    &s1,
+                    &s3,
+                    self.strides,
+                    self.padding,
+                    self.dilation,
+                    ConvGradientType::DATA,
+                );
 
-                    // God bless arrayfire
-                    let w_grad = convolve2_gradient_nn(
-                        &s3,
-                        &s2,
-                        &s1,
-                        &s3,
-                        self.strides,
-                        self.padding,
-                        self.dilation,
-                        ConvGradientType::FILTER,
-                    );
-                    af_dx += data_grad;
-                    assign_seq(&mut dw, &seqs_w, &w_grad);
-                }
-                let seqs_o = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
-                assign_seq(&mut dx, &seqs_o, &af_dx);
+                // God bless arrayfire
+                let w_grad = convolve2_gradient_nn(
+                    &s3,
+                    &s2,
+                    &s1,
+                    &s3,
+                    self.strides,
+                    self.padding,
+                    self.dilation,
+                    ConvGradientType::FILTER,
+                );
+                af_dx += data_grad;
+                assign_seq(&mut dw, &seqs_w, &w_grad);
             }
-            [dw, dx]
+            let seqs_o = [seq!(), seq!(), Seq::new(i as i32, i as i32, 1)];
+            assign_seq(&mut dx, &seqs_o, &af_dx);
         }
+        [Some(dw), Some(dx)]
     }
 }

@@ -1,13 +1,13 @@
 use arrayfire::{constant, dim4};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use nn::conv2d::Conv2d;
+use nn::tensor::Tensor;
 use rand::{self, Rng};
 
 fn conv_test(in_channel: u64, out_channel: u64) {
-    let data = constant(1., dim4!(5, 5, in_channel, 1));
+    let data = Tensor::new(constant(1., dim4!(5, 5, in_channel, 1)), None);
     let mut c = Conv2d::new(in_channel, out_channel, [2, 3], [3, 1], [1, 1], [1, 1]);
-    let o = c.apply(&data);
-    let _p = c.backward(&o);
+    let _o = c.apply(data);
 }
 
 fn criterion_benchmark(c: &mut Criterion) {

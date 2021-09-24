@@ -46,14 +46,14 @@ impl Mul for &Tensor {
 // but this sacrifice had to be made for better readability.
 pub struct WTen {
     pub data: Array<f64>,
-    pub grad: RefCell<Array<f64>>,
+    pub grad: RefCell<Option<Array<f64>>>,
     pub _ctx: Option<Box<dyn Function>>,
 }
 
 impl WTen {
     pub fn new(data: Array<f64>, _ctx: Option<Box<dyn Function>>) -> Self {
         Self {
-            grad: RefCell::new(constant(0., data.dims())),
+            grad: RefCell::new(None),
             data,
             _ctx,
         }
@@ -80,12 +80,19 @@ impl WTen {
     }
 
     pub fn backward(&self) {
-        self.grad.replace(constant(1., self.data.dims()));
+        self.grad.replace(Some(constant(1., self.data.dims())));
         for t0 in self.walk() {
-            let grads = t0._ctx.as_ref().unwrap().backward(&t0.grad);
-            for (t, g) in t0._ctx.as_ref().unwrap().parents().iter().zip(grads) {
-                // println!("{:?}", g.dims());
-                t.grad.replace_with(|old| add(old, &g, false));
+            if let Some(n) = t0.grad.borrow().as_ref() {
+                // TODO: FIX this by adding leaf or not!!
+                let grads = t0._ctx.as_ref().unwrap().backward(Some(n));
+                for (t, g) in t0._ctx.as_ref().unwrap().parents().iter().zip(grads) {
+                    if let Some(n) = g {
+                        if let Some(tg) = t.grad.borrow().as_ref() {
+                            t.grad
+                                .replace_with(|old| Some(add(old.as_ref().unwrap(), &n, false)));
+                        }
+                    }
+                }
             }
         }
     }

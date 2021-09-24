@@ -2,8 +2,8 @@
 #![allow(unused)]
 use super::tensor::Tensor;
 use arrayfire::{
-    assign_seq, constant, convolve2_nn, dim4, index, matmul, print, seq, tile, transpose, Array,
-    Seq,
+    assign_seq, constant, convolve2_nn, dim4, index, matmul, pow, print, seq, tile, transpose,
+    Array, Seq,
 };
 use std::cell::RefCell;
 
@@ -14,7 +14,7 @@ enum Dim {
 
 pub trait Function {
     fn parents(&self) -> &[Tensor];
-    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2];
+    fn backward(&self, grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2];
 }
 
 pub struct Add {
@@ -70,8 +70,8 @@ impl Function for Add {
         &self.parents
     }
 
-    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
-        [grad.borrow().clone(), grad.borrow().clone()]
+    fn backward(&self, grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2] {
+        [Some(grad.unwrap().copy()), Some(grad.unwrap().copy())]
     }
 }
 
@@ -93,14 +93,12 @@ impl Function for Mul {
         &self.parents
     }
 
-    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
+    fn backward(&self, grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2] {
         // Grads are implicitly defined as const(1., ..) so this dereference shouldn't cause error
-        unsafe {
-            [
-                arrayfire::mul(&*grad.as_ptr(), &self.parents[1].data, false),
-                arrayfire::mul(&*grad.as_ptr(), &self.parents[0].data, false),
-            ]
-        }
+        [
+            Some(arrayfire::mul(grad.unwrap(), &self.parents[1].data, false)),
+            Some(arrayfire::mul(grad.unwrap(), &self.parents[0].data, false)),
+        ]
     }
 }
 
@@ -133,25 +131,57 @@ impl Function for MatMul {
         &self.parents
     }
 
-    fn backward(&self, grad: &RefCell<Array<f64>>) -> [Array<f64>; 2] {
-        unsafe {
-            [
-                matmul(
-                    &*grad.as_ptr(),
-                    &self.parents[1].data,
-                    arrayfire::MatProp::NONE,
+    fn backward(&self, grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2] {
+        [
+            Some(matmul(
+                grad.unwrap(),
+                &self.parents[1].data,
+                arrayfire::MatProp::NONE,
+                arrayfire::MatProp::NONE,
+            )),
+            Some(transpose(
+                &matmul(
+                    &self.parents[0].data,
+                    grad.unwrap(),
+                    arrayfire::MatProp::TRANS,
                     arrayfire::MatProp::NONE,
                 ),
-                transpose(
-                    &matmul(
-                        &self.parents[0].data,
-                        &*grad.as_ptr(),
-                        arrayfire::MatProp::TRANS,
-                        arrayfire::MatProp::NONE,
-                    ),
-                    false,
-                ),
-            ]
-        }
+                false,
+            )),
+        ]
+    }
+}
+
+pub struct Pow {
+    parents: [Tensor; 1],
+    n: i32,
+}
+
+impl Pow {
+    pub fn apply(p1: &Tensor, n: i32) -> Tensor {
+        Tensor::new(
+            Pow::forward(p1, &n),
+            Some(Box::new(Self {
+                parents: [p1.get()],
+                n,
+            })),
+        )
+    }
+
+    fn forward(p1: &Tensor, n: &i32) -> Array<f64> {
+        pow(&p1.data, n, false)
+    }
+}
+
+impl Function for Pow {
+    fn parents(&self) -> &[Tensor] {
+        &self.parents
+    }
+
+    fn backward(&self, grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2] {
+        [
+            Some(-self.n * pow(&self.parents[0].data, &(self.n - 1), false)),
+            None,
+        ]
     }
 }
