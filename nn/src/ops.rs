@@ -1,11 +1,5 @@
-#![allow(dead_code)]
-#![allow(unused)]
 use super::tensor::Tensor;
-use arrayfire::{
-    assign_seq, constant, convolve2_nn, dim4, index, matmul, pow, print, seq, tile, transpose,
-    Array, Seq,
-};
-use std::cell::RefCell;
+use arrayfire::{dim4, matmul, pow, tile, transpose, Array};
 
 enum Dim {
     Zero,
@@ -178,7 +172,8 @@ impl Function for Pow {
         &self.parents
     }
 
-    fn backward(&self, grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2] {
+    // The grad is always "None"
+    fn backward(&self, _grad: Option<&Array<f64>>) -> [Option<Array<f64>>; 2] {
         [
             Some(-self.n * pow(&self.parents[0].data, &(self.n - 1), false)),
             None,

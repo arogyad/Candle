@@ -1,14 +1,13 @@
 #![allow(unused)]
 use super::ops::Function;
-use arrayfire::{add, dim4, print};
+use arrayfire::{add, dim4};
 use arrayfire::{constant, Array};
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
-use std::ops::{Add, Deref, Mul};
+use std::ops::{Add, Deref, DerefMut, Mul};
 use std::rc::Rc;
 
 // The make do tensor class which is a wrapper around Rc<WTen>.
-pub struct Tensor(pub Rc<WTen>);
+pub struct Tensor(Rc<WTen>);
 impl Tensor {
     pub fn new(data: Array<f64>, _ctx: Option<Box<dyn Function>>) -> Self {
         Self(Rc::new(WTen::new(data, _ctx)))
@@ -17,6 +16,10 @@ impl Tensor {
     pub fn get(&self) -> Tensor {
         Self(Rc::clone(&self.0))
     }
+
+    fn pow(&self, n: i32) -> Tensor {
+        crate::ops::Pow::apply(self, n)
+    }
 }
 
 // Basic Operations
@@ -24,6 +27,12 @@ impl Deref for Tensor {
     type Target = WTen;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl DerefMut for Tensor {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        Rc::get_mut(&mut self.0).unwrap()
     }
 }
 
@@ -59,8 +68,11 @@ impl WTen {
         }
     }
 
+    // Create a new tensor with the raised to that power
+
     fn _deepwalk<'a>(node: &'a WTen, nodes: &mut Vec<&'a WTen>, visited: &mut Vec<&'a WTen>) {
         if let Some(n) = &node._ctx {
+            // Might cause error in future
             visited.push(node);
             for i in n.parents() {
                 if !visited.contains(&i.0.as_ref()) {
